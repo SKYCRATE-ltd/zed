@@ -1,0 +1,2 @@
+# zed
+Types 'n' 'tings
