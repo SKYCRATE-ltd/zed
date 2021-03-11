@@ -1,0 +1,530 @@
+import {
+	extend, iterate, entries, map, filter, concat, copy, pop, has,
+	create, apply, define, sort, o, is, Getter, Accessor, view, object
+} from "crux";
+
+const AT = '@';
+const DO_NOTHING = x => x;
+const satisfies = (T1, T2) =>
+	T1 === T2 || (T1.parents && T1.parents.length ?
+		T1.parents.some(t => satisfies(t, T2)) :
+			T1.__proto__ && T1.__proto__ !== Object.__proto__ ?
+				satisfies(T1.__proto__, T2) : false);
+
+const DEFAULT_PROTOTYPE = {
+	extend(...objects) {
+		return extend(this, ...objects);
+	},
+	assign(values) {
+		return apply(this, values);
+	},
+	concat(...objects) {
+		return concat(this, ...objects);
+	},
+	map(mapper) {
+		return map(this, mapper);
+	},
+	filter(filterer) {
+		return filter(this, filterer);
+	},
+	forEach(iterator) {
+		return iterate(this, iterator);
+	},
+	copy() {
+		return copy(this);
+	},
+	
+	define(props) {
+		return define(this, props);
+	},
+	static(props, enumerable = true) {
+		return this.define(create.values(props, enumerable));
+	},
+	fields(fields) {
+		const [
+			props = {},
+			proto = {},
+			defs = {}
+		] = parse(fields, this.constructor.parents);
+		return this
+			.static(proto)
+			.define(props.map(([key, Descriptor]) => [key, Descriptor(key)]))
+			.assign(defs);
+	},
+
+	super(Type, ...args) {
+		if (args.length > 0) {
+			if (this.constructor.parents.indexOf(Type) > -1)
+				// TODO: for parents that are classes... how should we handle
+				// calling the constructor for inheritance? We seem to be stuck
+				// with the "new" keyword.
+				return Type.apply(this, args) || this;
+			throw `INIT ERROR: ${Type.name} not in inheritence chain.`;
+		}
+
+		return view(Type.prototype).map(([key, value]) => [key, value.bind(this)]);
+	},
+}
+
+extend(Object.prototype, DEFAULT_PROTOTYPE);
+
+const META_PROTOTYPE = {
+	defines(instance) {
+		return satisfies(instance.constructor, this);
+	},
+	validate(string) {
+		return this.defines(string);
+	},
+	extends(Type, parents = this.parents) {
+		return parents.some(parent => parent === Type || parent.extends(Type));
+	},
+	parse(string) {
+		return this(string);
+	},
+	stringify(instance) {
+		return `${instance}`;
+	}
+};
+
+const DEFAULT_PROPERTIES = {
+	[Symbol.species]: Getter(obj => obj.constructor, false),
+	[Symbol.toStringTag]: Getter(obj => {
+		return is.constructable(obj) ? "" : `${typeof obj} ${obj.constructor.constructor.name}`;
+	}, false),
+};
+
+const assemble = {
+	constructor: (id, properties, prototype, applier) => {
+		const constructor = {
+			[id]: function(...args) {
+				return applier(
+					is.global(this) ?
+						create(properties, {...prototype, constructor}) : this.define(properties),
+					...args
+				);
+			}
+		}[id];
+		return constructor;
+	},
+	function: (id, properties, prototype, applier) => {
+		const constructor = {
+			[id](...args) {
+				const instance = {
+					[id](...args) {
+						return func(...args);
+					}
+				}[id]
+				.define(properties)
+				.static({...prototype, constructor});
+				const func = applier(instance, ...args);
+				return instance;
+			}
+		}[id];
+		return constructor;
+	},
+	class: (id, properties, prototype, applier, _BASE = Object) => {
+		const Class = {
+			[id]:
+			class extends _BASE {
+				constructor(...args) {
+					super(...args);
+					this.define(properties);
+					applier(this, ...args);
+				}
+			}
+		}[id];
+		return Class;
+	}
+};
+
+const format = {
+	abstract: id => {
+		return {
+			[id]() {}
+		}[id];
+	},
+	model: (id, properties = o(), prototype = o(), _defaults = o()) =>
+		assemble.constructor(
+			id, properties, prototype,
+			prototype.init ?
+				(obj, ...args) =>
+					is.either(prototype.init.apply(apply(obj, _defaults), args), obj) :
+				(obj, defaults = o()) =>
+					apply(obj, concat(_defaults, defaults))),
+	procedure: (id, properties = o(), prototype = o(), _defaults = o()) =>
+			assemble.function(
+				id, properties, prototype,
+				prototype.init ?
+					(obj, ...args) => prototype.init.apply(apply(obj, _defaults), args) :
+						(obj, func) => func.bind(obj)),
+	class: (_base = Object) =>
+		(id, properties = o(), prototype = o(), _defaults = o()) =>
+			assemble.class(
+				id, properties, prototype,
+				(obj, ...args) => {
+					apply(obj, concat(_defaults, obj.constructor.defaults));
+					if (prototype.init)
+						prototype.init.apply(obj, args);
+				},
+				_base),
+};
+
+export let Property = class {
+	static [Symbol.hasInstance](instance) {
+		return false;
+	}
+};
+
+export const parse = (descriptor, parents = []) => {
+	if (!descriptor)
+		return [];
+
+	const PROPERTY = 0, METHOD = 1, DEFAULT = 2, LISTENER = 3;
+
+	return sort(descriptor, (key, value) => {
+		if (is.constructable(value))
+			return [PROPERTY, Field(value)];
+
+		if (is.literal(value)) {
+			if (is.object(value))
+				return [PROPERTY, Field(Interface(`${key}`, value))];
+			
+			if (parents.some(parent => has(parent.properties, key)))
+				return [DEFAULT, value];
+			
+			return [PROPERTY, Field(value.constructor).assign(value)];
+		}
+
+		if (is.function(value))
+			return key.startsWith(AT) ?
+					[
+						LISTENER,
+						[value]
+					] :
+					[
+						value instanceof Property ?
+							PROPERTY : METHOD,
+						value
+					];
+		
+		return [-1];
+	}, [[], [], []]);
+};
+
+export const TypeDescriptor = (
+	type,
+	prototype = META_PROTOTYPE,
+	properties = DEFAULT_PROPERTIES,
+	defaults = o(),
+	parents = [],
+	listeners = {},
+	statics = o(),
+	constructor = Type
+) => {
+	if (constructor)
+		type.static({constructor});
+	if (type.prototype)
+		type.prototype.static({...prototype}); // This should do what we need...
+	else
+		type.static({prototype});
+	return type
+	.define(DEFAULT_PROPERTIES)
+	.static({
+		defaults,
+		parents,
+		listeners
+	}.extend(!type.properties ? {properties} : {}))
+	.static(META_PROTOTYPE.filter(([key]) => !type[key]))
+	.define({
+		[Symbol.hasInstance]: create.value(function(instance) {
+			return is.string(instance) ? this.validate(instance) : this.defines(instance);
+		})
+	})
+	.static(statics);
+};
+
+export function Type(...args) {
+	if (is.global(this)) {
+		if (!is.string(args[0]))
+			return Type('Type', format.model, ...args);
+
+		let [id, formatter, ...descriptors] = args;
+		let [descriptor = {}, ...parents] = pop(descriptors);
+
+		if (is.constructable(descriptor))
+			parents.push(descriptor) && (descriptor = null);
+
+		let [
+			properties = {},
+			prototype = {},
+			defaults = {},
+			listeners = {} // {key -> [function]}
+		] = parse(descriptor, parents);
+
+		properties = concat(
+			DEFAULT_PROPERTIES,
+			...parents.map(parent => parent.properties || {}),
+			properties.map(([key, Prop]) => [key, Prop(key)])
+		);
+			
+		prototype = concat(
+			...parents.map(parent => view(parent.prototype)),
+			prototype);
+
+		defaults = concat(
+			...parents.map(parent => parent.defaults || {}),
+			defaults);
+		
+		listeners = parents
+					.map(parent => parent.listeners || {})
+					.concat(listeners.map(([key, listener]) => [key.substr(AT.length), listener]))
+					.reduce((result, obj) => {
+						obj.forEach(([key, funclist]) => {
+							const list = result[key];
+							if (list)
+								list.concat(funclist);
+							else
+								result[key] = [...funclist];
+						});
+						return result;
+					}, {});
+
+		return TypeDescriptor(
+			formatter(
+				id,
+				properties,
+				prototype,
+				properties
+					.filter(([key, prop]) => is.defined(prop._value))
+					.map(([key, prop]) => [key, prop._value])
+					.concat(defaults),
+				listeners
+			),
+			prototype,
+			properties,
+			defaults,
+			parents,
+			listeners
+		);
+	}
+
+	return this.fields(...args);
+};
+TypeDescriptor(Type).static({
+	defines(instance) {
+		return !!instance.prototype;
+	}
+});
+
+export const Interface = Type('Interface', format.model, {
+	init(_id, ...descriptors) {
+		return Type(_id, format.abstract, ...descriptors).static({
+			defines(instance) {
+				if (entries(this.properties).every(([key, descriptor]) =>
+					instance[key] instanceof descriptor.type));
+			}
+		});
+	}
+});
+
+// TODO: change to just a function? The multi-level Type returning gets confusing...
+export const MetaType = Type('MetaType', format.model, {
+	init(_id, formatter) {
+		const metatype = Type(_id, format.model, {
+			
+			init(id, ...descriptors) {
+				if (!is.string(id))
+					descriptors.unshift(id) && (id = _id);
+				
+				return Type(id, formatter, ...descriptors).static({
+					constructor: metatype
+				});
+			}
+
+		}).static({
+			constructor: MetaType
+		});
+		return metatype;
+	}
+});
+export const Abstract = MetaType('Abstract', format.abstract);
+export const Model = MetaType('Model', format.model);
+export const List = Type('List', format.model, {
+	init(T) {
+		return Type(`${T}[]`, format.abstract).static({
+			defines(array) {
+				return array.every(item => item instanceof T);
+			}
+		});
+	}
+});
+export const Procedure = MetaType('Procedure', format.procedure);
+export const Class = Type('Class', format.model, {
+	init(base, ...rest) {
+		rest = rest.filter(descriptor => is.constructable(descriptor));
+		return Type(base.name + (rest.length ? ' > ' + rest.join(' + ') : ''), format.class(base), ...rest);
+	}
+});
+
+Property = Model(
+	'Property',
+	{
+		init(
+			key = 'anonymous',
+			get = (obj, key) => undefined,
+			set = (obj, key, value) => undefined,
+		) {
+			this.static(Accessor(
+				obj => get(obj, key),
+				(obj, to, from) => {
+					if (this.validate(to))
+						return set(obj, key, to, from);
+					throw '!TYPE ERROR! @ ' +
+						`${obj.constructor.name}.${key}:${this.type.name}${this._nullable ? '?' : ''}\n` +
+						`"${to}" is of type ${is.defined(to) ? to.constructor.name : 'null'}.`;
+				},
+				// enumerable?
+				key.constructor !== Symbol && !key.startsWith('_')
+			));
+		},
+		validate(value) {
+			return (value === null && this._nullable) || value instanceof this.type;
+		},
+		nullable(bool = true) {
+			this._nullable = bool;
+			this._required = false;
+			return this;
+		},
+		assign(value = null) {
+			if (!this.validate(value))
+				throw '!TYPE ERROR! @ ' +
+				`!ASSIGN ERROR! Value must be of type ${this.type.name}${this._nullable ? ' or null' : ''}.\n` +
+				`"${value}" is of type ${is.defined(value) ? value.constructor.name : 'null'}.`;
+			this._value = value;
+			this._required = false;
+			return this;
+		},
+		required(boolean = true) {
+			this._required = boolean;
+			this._value = undefined;
+			return this;
+		}
+	}
+);
+
+export const Field = Procedure(
+	'Field',
+	Property,
+	{
+		init(type, onchange = DO_NOTHING) {
+			this.type = type;
+			return name => {
+				this.super(
+					Property,
+					name,
+					(obj, key) => this._value,
+					(obj, key, to, from) =>
+						setTimeout(() => onchange(obj, to, from), 15) && to
+				);
+				return this;
+			}
+		}
+	});
+
+export const Typify = (type, statics = o()) =>
+	TypeDescriptor(type, {}, {}, {}, [], {}, statics, null);
+
+Typify(String);
+Typify(Number);
+Typify(Boolean);
+Typify(BigInt);
+Typify(Function, {
+	parse(string) {
+		try {
+			return eval(`(${string})`);
+		} catch(e) {
+			throw `!FUNCTION PARSE ERROR! The string passed is not valid source code.`;
+		}
+	},
+	stringify(func) {
+		return func.toString();
+	}
+});
+Typify(Date, {
+	parse(string) {
+		const d = new Date(string);
+		if (isNaN(d))
+			throw `!DATE PARSE ERROR! The string "${string}" is not a valid date format.`;
+	},
+	stringify(date) {
+		return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toJSON();
+	}
+});
+
+export class Any extends Type {
+	constructor() {
+		throw `Cannot construct instance of type ${this.constructor.name}.`;
+	}
+	static defines() {
+		return true;
+	}
+}
+
+export class Integer extends Class(Number) {
+	constructor(...args) {
+		super(...args);
+	}
+	static defines(instance) {
+		return Number.isInteger(instance);
+	}
+	static parse(string) {
+		const int = parseInt(string);
+		if (int === NaN)
+			throw `!${this.name.toUpperCase()} PARSE ERROR! "${string}" is not an ${this.name}.`;
+		return int;
+	}
+}
+
+export class Double extends Class(Number) {
+	constructor(...args) {
+		super(...args);
+	}
+	static defines(instance) {
+		return instance instanceof Number;
+	}
+	static parse(string) {
+		const dbl = parseFloat(string);
+		if (dbl === NaN)
+			throw `!${this.name.toLocaleUpperCase()} PARSE ERROR! "${string}" is not a Number.`
+		return dbl;
+	}
+	static stringify(dbl, size = 2) {
+		return dbl.toFixed(size);
+	}
+}
+
+export const Emitter = Abstract('Emitter', {
+	_channels: Field(Any).assign(
+		new Proxy({}, {
+			get(obj, key) {
+				return Reflect.has(obj, key) ?
+						Reflect.get(obj, key) :
+							Reflect.set(obj, key, []) && this.get(obj, key);
+			}
+		})),
+	on(chnnl, listener) {
+		const listeners = this._channels[chnnl];
+		if (listeners.includes(listener))
+			throw `DUPLICATE ERROR: ${
+				listener.name
+			} listener already bound to "${chnnl}" channel on ${
+				this.constructor.name
+			}.`;
+		listeners.push(listener);
+		return this;
+	},
+	emit(chnnl, ...msg) {
+		return this._channels[chnnl].map(listener => listener(...msg));
+	}
+});
+
