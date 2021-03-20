@@ -1,6 +1,10 @@
 import {
-	extend, iterate, entries, map, filter, concat, copy, pop, has,
-	create, apply, define, sort, o, is, Getter, Accessor, view, object
+	extend, iterate, entries,
+	map, filter, concat,
+	copy, pop, has,
+	create, apply, define,
+	sort, o, is,
+	Getter, Accessor, view
 } from "crux";
 
 const AT = '@';
@@ -316,6 +320,60 @@ TypeDescriptor(Type).static({
 	}
 });
 
+export const Typify = (type, statics = o()) =>
+	TypeDescriptor(type, {}, {}, {}, [], {}, statics, null);
+
+Typify(Array, {
+	validate(string) {
+		return /^\w(\s?,\s?\w)?/.test(string);
+	},
+	parse(string) {
+		return string
+				.split(',')
+				.map(x => x.trim())
+				.filter(x => x);
+	},
+	stringify(rry) {
+		return rry.join(',');
+	}
+});
+Typify(String);
+Typify(Number);
+Typify(Boolean, {
+	validate(string) {
+		return /^(true|false)$/.test(string);
+	},
+	parse(string) {
+		return string === "true";
+	}
+});
+Typify(BigInt);
+Typify(Function, {
+	parse(string) {
+		try {
+			return eval(`(${string})`);
+		} catch(e) {
+			throw `!FUNCTION PARSE ERROR! The string passed is not valid source code.`;
+		}
+	},
+	stringify(func) {
+		return func.toString();
+	}
+});
+Typify(Date, {
+	validate(string) {
+		return /[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z/.test(string);
+	},
+	parse(string) {
+		const d = new Date(string);
+		if (isNaN(d))
+			throw `!DATE PARSE ERROR! The string "${string}" is not a valid date format.`;
+	},
+	stringify(date) {
+		return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toJSON();
+	}
+});
+
 export const Interface = Type('Interface', format.model, {
 	init(_id, ...descriptors) {
 		return Type(_id, format.abstract, ...descriptors).static({
@@ -349,20 +407,37 @@ export const MetaType = Type('MetaType', format.model, {
 });
 export const Abstract = MetaType('Abstract', format.abstract);
 export const Model = MetaType('Model', format.model);
-export const List = Type('List', format.model, {
-	init(T) {
-		return Type(`${T}[]`, format.abstract).static({
-			defines(array) {
-				return array.every(item => item instanceof T);
-			}
-		});
-	}
-});
 export const Procedure = MetaType('Procedure', format.procedure);
 export const Class = Type('Class', format.model, {
 	init(base, ...rest) {
 		rest = rest.filter(descriptor => is.constructable(descriptor));
-		return Type(base.name + (rest.length ? ' > ' + rest.join(' + ') : ''), format.class(base), ...rest);
+		return Type(
+			base.name + (rest.length ? ' > ' + rest.join(' + ') : ''),
+			format.class(base), ...rest);
+	}
+});
+export const List = Type('List', format.model, {
+	init(T) {
+		return Type(
+			`${T}[]`,
+			format.class(Array),
+			{
+				init() {
+					if (!this.every(item => item instanceof T))
+						throw `LIST TYPE ERROR: All items must be of type ${T}`;
+				}
+			}
+		).static({
+			defines(array) {
+				return array.every(item => item instanceof T);
+			},
+			parse(string) {
+				return Array.parse(string).map(x => T.parse(x));
+			},
+			stringify(rry) {
+				return rry.map(x => T.stringify(x)).join(',');
+			}
+		});
 	}
 });
 
@@ -431,36 +506,6 @@ export const Field = Procedure(
 		}
 	});
 
-export const Typify = (type, statics = o()) =>
-	TypeDescriptor(type, {}, {}, {}, [], {}, statics, null);
-
-Typify(String);
-Typify(Number);
-Typify(Boolean);
-Typify(BigInt);
-Typify(Function, {
-	parse(string) {
-		try {
-			return eval(`(${string})`);
-		} catch(e) {
-			throw `!FUNCTION PARSE ERROR! The string passed is not valid source code.`;
-		}
-	},
-	stringify(func) {
-		return func.toString();
-	}
-});
-Typify(Date, {
-	parse(string) {
-		const d = new Date(string);
-		if (isNaN(d))
-			throw `!DATE PARSE ERROR! The string "${string}" is not a valid date format.`;
-	},
-	stringify(date) {
-		return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toJSON();
-	}
-});
-
 export class Any extends Type {
 	constructor() {
 		throw `Cannot construct instance of type ${this.constructor.name}.`;
@@ -471,11 +516,15 @@ export class Any extends Type {
 }
 
 export class Integer extends Class(Number) {
+	static expression = /^(\+|-)?[0-9]+$/;
 	constructor(...args) {
 		super(...args);
 	}
 	static defines(instance) {
 		return Number.isInteger(instance);
+	}
+	static validate(string) {
+		return this.expression.test(string);
 	}
 	static parse(string) {
 		const int = parseInt(string);
@@ -486,11 +535,15 @@ export class Integer extends Class(Number) {
 }
 
 export class Double extends Class(Number) {
+	static expression = /^(\+|-)?[0-9]+\.([0-9]+)?$/;
 	constructor(...args) {
 		super(...args);
 	}
 	static defines(instance) {
 		return instance instanceof Number;
+	}
+	static validate(string) {
+		return this.expression.test(string);
 	}
 	static parse(string) {
 		const dbl = parseFloat(string);
