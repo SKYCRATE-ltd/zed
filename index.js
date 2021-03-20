@@ -83,7 +83,7 @@ const META_PROTOTYPE = {
 		return parents.some(parent => parent === Type || parent.extends(Type));
 	},
 	parse(string) {
-		return this(string);
+		return new this(string);
 	},
 	stringify(instance) {
 		return `${instance}`;
