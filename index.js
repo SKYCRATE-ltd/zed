@@ -323,20 +323,6 @@ TypeDescriptor(Type).static({
 export const Typify = (type, statics = o()) =>
 	TypeDescriptor(type, {}, {}, {}, [], {}, statics, null);
 
-Typify(Array, {
-	validate(string) {
-		return /^\w(\s?,\s?\w)?/.test(string);
-	},
-	parse(string) {
-		return string
-				.split(',')
-				.map(x => x.trim())
-				.filter(x => x);
-	},
-	stringify(rry) {
-		return rry.join(',');
-	}
-});
 Typify(String);
 Typify(Number);
 Typify(Boolean, {
@@ -432,7 +418,11 @@ export const List = Type('List', format.model, {
 				return array.every(item => item instanceof T);
 			},
 			parse(string) {
-				return Array.parse(string).map(x => T.parse(x));
+				return string
+					.split(',')
+					.map(x => x.trim())
+					.filter(x => x)
+					.map(x => T.parse(x));
 			},
 			stringify(rry) {
 				return rry.map(x => T.stringify(x)).join(',');
