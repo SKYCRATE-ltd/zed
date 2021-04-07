@@ -247,7 +247,7 @@ export const TypeDescriptor = (
 	.static(statics);
 };
 
-export function Type(...args) {
+export default function Type(...args) {
 	if (is.global(this)) {
 		if (!is.string(args[0]))
 			return Type('Type', format.model, ...args);
