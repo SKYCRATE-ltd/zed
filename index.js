@@ -16,6 +16,9 @@ const satisfies = (T1, T2) =>
 				satisfies(T1.__proto__, T2) : false);
 
 const DEFAULT_PROTOTYPE = {
+	// Should these be made differnetly? Might change to __method__ to avoid collisions...
+	// OR, I wrap objects... not sure yet...
+	// Modify(obj).map(x => ...).filter(x => ...).etc...
 	extend(...objects) {
 		return extend(this, ...objects);
 	},
@@ -38,6 +41,7 @@ const DEFAULT_PROTOTYPE = {
 		return copy(this);
 	},
 	
+	/* The following might need modified... */
 	define(props) {
 		return define(this, props);
 	},
@@ -143,9 +147,15 @@ const assemble = {
 
 const format = {
 	abstract: id => {
-		return {
-			[id]() {}
+		const Abstract = {
+			[id]: class {
+				constructor() {
+					if (this.constructor === Abstract)
+						throw `Cannot create instance of an abstract => ${Abstract}. Please inherit or extend.`
+				}
+			}
 		}[id];
+		return Abstract;
 	},
 	model: (id, properties = o(), prototype = o(), _defaults = o()) =>
 		assemble.constructor(
@@ -250,7 +260,7 @@ export const TypeDescriptor = (
 export function Type(...args) {
 	if (is.global(this)) {
 		if (!is.string(args[0]))
-			return Type('Type', format.model, ...args);
+			return Type('Type', format.model, ...args).call(this);
 
 		let [id, formatter, ...descriptors] = args;
 		let [descriptor = {}, ...parents] = pop(descriptors);
@@ -324,7 +334,30 @@ export const Typify = (type, statics = o()) =>
 	TypeDescriptor(type, {}, {}, {}, [], {}, statics, null);
 
 Typify(String);
-Typify(Number);
+Typify(Number, {
+	expression: /^(\+|-)?[0-9]+\.([0-9]+)?$/,
+	defines(instance) {
+		return instance instanceof Number;
+	},
+	parse(string) {
+		const num = parseFloat(string);
+		if (num === NaN)
+			throw `!${this.name.toLocaleUpperCase()} PARSE ERROR! "${string}" is not a Number.`
+		return num;
+	},
+
+	Range(a, b) {
+		const type = this;
+		const id = `Range<${type.name}>`;
+		return {
+			[id]: class extends type {
+				static defines(instance) {
+					return type.defines(instance) && instance >= a && instance <= b;
+				}
+			}
+		}[id];
+	}
+});
 Typify(Boolean, {
 	validate(string) {
 		return /^(true|false)$/.test(string);
@@ -505,13 +538,13 @@ export class Any extends Type {
 	}
 }
 
-export class Integer extends Class(Number) {
-	static expression = /^(\+|-)?[0-9]+$/;
+export class UInt extends Class(Number) {
+	static expression = /^[0-9]+$/;
 	constructor(...args) {
 		super(...args);
 	}
 	static defines(instance) {
-		return Number.isInteger(instance);
+		return Number.isInteger(instance) && instance > -1;
 	}
 	static validate(string) {
 		return this.expression.test(string);
@@ -524,27 +557,96 @@ export class Integer extends Class(Number) {
 	}
 }
 
-export class Double extends Class(Number) {
-	static expression = /^(\+|-)?[0-9]+\.([0-9]+)?$/;
+export class Int extends UInt {
+	static expression = /^(\+|-)?[0-9]+$/;
 	constructor(...args) {
 		super(...args);
 	}
-	static defines(instance) {
-		return instance instanceof Number;
-	}
-	static validate(string) {
-		return this.expression.test(string);
-	}
-	static parse(string) {
-		const dbl = parseFloat(string);
-		if (dbl === NaN)
-			throw `!${this.name.toLocaleUpperCase()} PARSE ERROR! "${string}" is not a Number.`
-		return dbl;
+}
+
+// TODO: Make this a money specific thing instead?
+export class Dbl extends Class(Number) {
+	constructor(...args) {
+		super(...args);
 	}
 	static stringify(dbl, size = 2) {
 		return dbl.toFixed(size);
 	}
 }
+
+// TODO: change this somehow...
+/*
+export class Options extends Type {
+	constructor(...options) {
+		// Create an Abstract...
+		// So, really, all these kind of Types that I don;t make an instance of are Abstracts like they ought to be!!
+		// OK! So we need to make:
+
+		// might need to abstract Abstract a little...
+		class Thing extends Abstract/Interface {
+			// This class returns us an Abstract or Interface...
+		}
+
+		class Thingy extends Abstract/Interface({
+			// stuff the instance should have...
+		}) {
+			// we can put that stuff here too...
+		}
+		
+	}
+}
+*/
+// Options are A BIT like an enum... mull it over...
+export const Options = Type(
+	`Options`,
+	{
+		init(...values) {
+			// TODO: handle objects as interfaces... then check instanceof
+			// TODO: handle interfaces! They should be easy to detect...
+			// maybe implement the above down in Either instead...
+			return Abstract(
+				`Options<${values.join('|')}>`
+			).static({
+				defines(instance) {
+					return values.some(value => value === instance);
+				},
+				stringify(instance) {
+					return instance.constructor?.stringify(instance) || instance.toString();
+				},
+				parse(string) {
+					// Hmmm... yeah the parse one is trickier...
+					// Can only be done if we know what the types are...
+					// Do we wish to do this? Imma say no.
+					return string.constructor?.stringify(instance) || instance;
+				}
+				// How do we ensure stringify and parse happen correctly?
+				// TODO: might have to implement parse... and base it on
+				// types passed in values... I guess ensure they're all
+				// of the same type, eh? MAYBE.
+			});
+		}
+	}
+);
+
+export const Either = Type(
+	`Either`,
+	{
+		init(...types) {
+			// TODO: implement... when the time comes...
+			// This is probably where we should implement the
+			// aforementioed checking of interfaces... since
+			// types 'n' all... something to think about!
+
+			return Abstract(
+				`<${types.join('|')}>`
+			).static({
+				defines(instance) {
+					return types.some(type => instance instanceof type)
+				}
+			});
+		}
+	}
+)
 
 export const Emitter = Abstract('Emitter', {
 	_channels: Field(Any).assign(
@@ -555,6 +657,10 @@ export const Emitter = Abstract('Emitter', {
 							Reflect.set(obj, key, []) && this.get(obj, key);
 			}
 		})),
+	// TODO: rethink channels... they shoukld have this format: channel/path/to/sub/topic
+	// THIS IS YET ANOTHER REASON WHY WE NEED A FILTER METHOD instead of separate channels
+	// We SHOULD be able to listen to ALL events very readily such that we can relay them
+	// to a higher level.... DO THIS.
 	on(chnnl, listener) {
 		const listeners = this._channels[chnnl];
 		if (listeners.includes(listener))
