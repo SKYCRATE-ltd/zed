@@ -574,36 +574,13 @@ export class Dbl extends Class(Number) {
 	}
 }
 
-// TODO: change this somehow...
-/*
-export class Options extends Type {
-	constructor(...options) {
-		// Create an Abstract...
-		// So, really, all these kind of Types that I don;t make an instance of are Abstracts like they ought to be!!
-		// OK! So we need to make:
-
-		// might need to abstract Abstract a little...
-		class Thing extends Abstract/Interface {
-			// This class returns us an Abstract or Interface...
-		}
-
-		class Thingy extends Abstract/Interface({
-			// stuff the instance should have...
-		}) {
-			// we can put that stuff here too...
-		}
-		
-	}
-}
-*/
 // Options are A BIT like an enum... mull it over...
 export const Options = Type(
 	`Options`,
 	{
 		init(...values) {
-			// TODO: handle objects as interfaces... then check instanceof
-			// TODO: handle interfaces! They should be easy to detect...
-			// maybe implement the above down in Either instead...
+			// WE SHOULD ASSUME ALL VALUES ARE OF THE SAME TYPE.
+			// ACTUALLY, WE SHOULD ENFORCE IT.
 			return Abstract(
 				`Options<${values.join('|')}>`
 			).static({
@@ -614,15 +591,9 @@ export const Options = Type(
 					return instance.constructor?.stringify(instance) || instance.toString();
 				},
 				parse(string) {
-					// Hmmm... yeah the parse one is trickier...
-					// Can only be done if we know what the types are...
-					// Do we wish to do this? Imma say no.
+					// TODO: PARSING BASED ON ENFORCED TYPE ABOVE.
 					return string.constructor?.stringify(instance) || instance;
 				}
-				// How do we ensure stringify and parse happen correctly?
-				// TODO: might have to implement parse... and base it on
-				// types passed in values... I guess ensure they're all
-				// of the same type, eh? MAYBE.
 			});
 		}
 	}
@@ -632,13 +603,8 @@ export const Either = Type(
 	`Either`,
 	{
 		init(...types) {
-			// TODO: implement... when the time comes...
-			// This is probably where we should implement the
-			// aforementioed checking of interfaces... since
-			// types 'n' all... something to think about!
-
 			return Abstract(
-				`<${types.join('|')}>`
+				`Either<${types.join('|')}>`
 			).static({
 				defines(instance) {
 					return types.some(type => instance instanceof type)
@@ -648,6 +614,7 @@ export const Either = Type(
 	}
 )
 
+// TODO: at the least it should be easy to "bubble" or "route" events...
 export const Emitter = Abstract('Emitter', {
 	_channels: Field(Any).assign(
 		new Proxy({}, {
