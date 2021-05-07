@@ -16,9 +16,7 @@ const satisfies = (T1, T2) =>
 				satisfies(T1.__proto__, T2) : false);
 
 const DEFAULT_PROTOTYPE = {
-	// Should these be made differnetly? Might change to __method__ to avoid collisions...
-	// OR, I wrap objects... not sure yet...
-	// Modify(obj).map(x => ...).filter(x => ...).etc...
+	// TODO: ensure these are NOT enumerables!
 	extend(...objects) {
 		return extend(this, ...objects);
 	},
@@ -38,6 +36,7 @@ const DEFAULT_PROTOTYPE = {
 		return iterate(this, iterator);
 	},
 	copy() {
+		console.trace('WTF');
 		return copy(this);
 	},
 	
@@ -260,7 +259,7 @@ export const TypeDescriptor = (
 export function Type(...args) {
 	if (is.global(this)) {
 		if (!is.string(args[0]))
-			return Type('Type', format.model, ...args).call(this);
+			return Type.call(this, 'Type', format.model, ...args);
 
 		let [id, formatter, ...descriptors] = args;
 		let [descriptor = {}, ...parents] = pop(descriptors);
@@ -302,7 +301,7 @@ export function Type(...args) {
 						});
 						return result;
 					}, {});
-
+		
 		return TypeDescriptor(
 			formatter(
 				id,
@@ -337,7 +336,7 @@ Typify(String);
 Typify(Number, {
 	expression: /^(\+|-)?[0-9]+\.([0-9]+)?$/,
 	defines(instance) {
-		return instance instanceof Number;
+		return instance.constructor === Number;
 	},
 	parse(string) {
 		const num = parseFloat(string);
@@ -486,14 +485,14 @@ Property = Model(
 			));
 		},
 		validate(value) {
-			return (value === null && this._nullable) || value instanceof this.type;
+			return (is.defined(value) && this._nullable) || value instanceof this.type;
 		},
 		nullable(bool = true) {
 			this._nullable = bool;
 			this._required = false;
 			return this;
 		},
-		assign(value = null) {
+		assign(value = undefined) {
 			if (!this.validate(value))
 				throw '!TYPE ERROR! @ ' +
 				`!ASSIGN ERROR! Value must be of type ${this.type.name}${this._nullable ? ' or null' : ''}.\n` +
@@ -577,6 +576,7 @@ export class Dbl extends Class(Number) {
 // Options are A BIT like an enum... mull it over...
 export const Options = Type(
 	`Options`,
+	format.model,
 	{
 		init(...values) {
 			// WE SHOULD ASSUME ALL VALUES ARE OF THE SAME TYPE.
@@ -601,6 +601,7 @@ export const Options = Type(
 
 export const Either = Type(
 	`Either`,
+	format.model,
 	{
 		init(...types) {
 			return Abstract(
@@ -624,10 +625,6 @@ export const Emitter = Abstract('Emitter', {
 							Reflect.set(obj, key, []) && this.get(obj, key);
 			}
 		})),
-	// TODO: rethink channels... they shoukld have this format: channel/path/to/sub/topic
-	// THIS IS YET ANOTHER REASON WHY WE NEED A FILTER METHOD instead of separate channels
-	// We SHOULD be able to listen to ALL events very readily such that we can relay them
-	// to a higher level.... DO THIS.
 	on(chnnl, listener) {
 		const listeners = this._channels[chnnl];
 		if (listeners.includes(listener))
