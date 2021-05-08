@@ -73,7 +73,7 @@ const DEFAULT_PROTOTYPE = {
 	},
 }
 
-extend(Object.prototype, DEFAULT_PROTOTYPE);
+define(Object.prototype, create.variables(DEFAULT_PROTOTYPE, false));
 
 const META_PROTOTYPE = {
 	defines(instance) {
