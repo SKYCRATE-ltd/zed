@@ -532,14 +532,20 @@ export const Hook = Procedure(
 	'Hook',
 	Property,
 	{
-		init({get = DO_NOTHING, set = DO_NOTHING}) {
+		init(hooks) {
+			if (is.function(hooks))
+				hooks = {
+					get: hooks
+				};
+			
 			this.type = type;
 			return name => {
 				this.super(
 					Property,
 					name,
-					(obj, key) => get(obj),
-					(obj, key, to, from) => set(obj, to)
+					(obj, key) => hooks.get(obj),
+					(obj, key, to, from) =>
+						hooks.set?.(obj, to) ?? to
 				);
 				return this;
 			}
