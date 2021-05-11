@@ -386,6 +386,7 @@ Typify(Date, {
 		const d = new Date(string);
 		if (isNaN(d))
 			throw `!DATE PARSE ERROR! The string "${string}" is not a valid date format.`;
+		return d;
 	},
 	stringify(date) {
 		return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toJSON();
@@ -469,15 +470,20 @@ Property = Model(
 		init(
 			key = 'anonymous',
 			get = (obj, key) => undefined,
-			set = (obj, key, value) => undefined,
+			set = (obj, key, value) => undefined
 		) {
 			this.static(Accessor(
 				obj => get(obj, key),
 				(obj, to, from) => {
 					if (this.validate(to))
-						return set(obj, key, to, from);
+						return set(
+							obj,
+							key,
+							is.string(to) && this.type !== String ? this.type?.parse?.(to) : to,
+							from
+						);
 					throw '!TYPE ERROR! @ ' +
-						`${obj.constructor.name}.${key}:${this.type.name}${this._nullable ? '?' : ''}\n` +
+						`${obj.constructor.name}.${key}:${this.type?.name || 'Any'}${this._nullable ? '?' : ''}\n` +
 						`"${to}" is of type ${is.defined(to) ? to.constructor.name : 'null'}.`;
 				},
 				// enumerable?
@@ -514,7 +520,7 @@ export const Field = Procedure(
 	Property,
 	{
 		init(type, onchange = DO_NOTHING) {
-			this.type = type;
+			this.type = type; // TODO: <-- This should really be a property defined by Property...
 			return name => {
 				this.super(
 					Property,
@@ -538,7 +544,6 @@ export const Hook = Procedure(
 					get: hooks
 				};
 			
-			this.type = type;
 			return name => {
 				this.super(
 					Property,
