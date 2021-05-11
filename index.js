@@ -528,6 +528,24 @@ export const Field = Procedure(
 		}
 	});
 
+export const Hook = Procedure(
+	'Hook',
+	Property,
+	{
+		init({get = DO_NOTHING, set = DO_NOTHING}) {
+			this.type = type;
+			return name => {
+				this.super(
+					Property,
+					name,
+					(obj, key) => get(obj),
+					(obj, key, to, from) => set(obj, to)
+				);
+				return this;
+			}
+		}
+	});
+
 export class Any extends Type {
 	constructor() {
 		throw `Cannot construct instance of type ${this.constructor.name}.`;
