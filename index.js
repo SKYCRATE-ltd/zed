@@ -397,8 +397,11 @@ export const Interface = Type('Interface', format.model, {
 	init(_id, ...descriptors) {
 		return Type(_id, format.abstract, ...descriptors).static({
 			defines(instance) {
-				if (entries(this.properties).every(([key, descriptor]) =>
-					instance[key] instanceof descriptor.type));
+				return entries(this.properties).every(
+					([key, descriptor]) =>
+						(instance[key] ?? instance[key] instanceof descriptor.type) ||
+							!descriptor._required
+				);
 			}
 		});
 	}
@@ -602,6 +605,13 @@ export class Dbl extends Class(Number) {
 	}
 }
 
+// Will this work?
+export class DateTime extends Date {
+	cosntructor(...args) {
+		super(...args);
+	}
+}
+
 // Options are A BIT like an enum... mull it over...
 export const Options = Type(
 	`Options`,
@@ -617,11 +627,11 @@ export const Options = Type(
 					return values.some(value => value === instance);
 				},
 				stringify(instance) {
-					return instance.constructor?.stringify(instance) || instance.toString();
+					return instance.constructor?.stringify?.(instance) || instance.toString();
 				},
 				parse(string) {
 					// TODO: PARSING BASED ON ENFORCED TYPE ABOVE.
-					return string.constructor?.stringify(instance) || instance;
+					return values[0]?.constructor?.parse?.(instance) || string;
 				}
 			});
 		}
