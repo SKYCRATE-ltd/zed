@@ -194,7 +194,12 @@ export const parse = (descriptor, parents = []) => {
 
 	const PROPERTY = 0, METHOD = 1, DEFAULT = 2, LISTENER = 3;
 
-	return sort(descriptor, (key, value) => {
+	return sort(descriptor, pair => {
+		const [key, value] = pair;
+
+		if (key.endsWith('*'))
+			pair[0] = key.slice(0, -1);
+
 		if (is.constructable(value))
 			return [PROPERTY, Field(value)];
 
@@ -492,6 +497,7 @@ Property = Model(
 				// enumerable?
 				key.constructor !== Symbol && !key.startsWith('_')
 			));
+			this.required(key.endsWith('*'));
 		},
 		validate(value) {
 			return (is.defined(value) && this._nullable) || value instanceof this.type;
