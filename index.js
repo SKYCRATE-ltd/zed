@@ -613,7 +613,7 @@ export class Dbl extends Class(Number) {
 
 // Will this work?
 export class DateTime extends Date {
-	cosntructor(...args) {
+	constructor(...args) {
 		super(...args);
 	}
 }
