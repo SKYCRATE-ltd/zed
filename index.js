@@ -12,6 +12,7 @@ const DO_NOTHING = x => x;
 const satisfies = (T1, T2) =>
 	T1 === T2 || (T1.parents && T1.parents.length ?
 		T1.parents.some(t => satisfies(t, T2)) :
+			// TODO: Need to double check this works....
 			T1.__proto__ && T1.__proto__ !== Object.__proto__ ?
 				satisfies(T1.__proto__, T2) : false);
 
@@ -267,6 +268,8 @@ export function Type(...args) {
 			return Type.call(this, 'Type', format.model, ...args);
 
 		let [id, formatter, ...descriptors] = args;
+		// if (is.constructable(formatter))
+		// 	return Type.call(this, id, format.model, formatter, ...descriptors);
 		let [descriptor = {}, ...parents] = pop(descriptors);
 
 		if (is.constructable(descriptor))
